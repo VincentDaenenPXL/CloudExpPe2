@@ -101,8 +101,8 @@ Resources:
           PortMappings:
             - { ContainerPort: 5000, Protocol: tcp }
           Environment:
-            - Name: BACKEND_API_URL
-              Value: !Sub 'http://${BackendApiUrl}'
+            - Name: INTERNAL_ALB_DNS_NAME
+              Value: !Ref BackendApiUrl
           LogConfiguration:
             LogDriver: awslogs
             Options:

@@ -15,7 +15,7 @@
             <tr>
                 <td class="w-50 align-middle text-center">{{todos[todo_id]}}</td>
                 <td class="w-25 align-middle text-end">
-                    <form action="/api/complete/{{todo_id}}" method="POST">
+                    <form class="complete-task-form" action="/api/complete/{{todo_id}}" method="POST">
                         <div class="form-group">
                         <button class="btn btn-success" type="submit"><i class="bi bi-check"></i></button>
                         </div>
@@ -33,7 +33,7 @@
                         </div>
                         <div class="modal-body">
 
-                            <form action="/api/update" method="POST">
+                            <form class="update-task-form" action="/api/update" method="POST">
                                 <div class="form-group">
                                     <label>Task:</label>
                                     <input type="hidden"  name="task_id" value="{{todo_id}}">
