@@ -1,0 +1,24 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS Cluster Stack - Creates an Amazon ECS Cluster.
+
+Parameters:
+  Environment:
+    Type: String
+    Description: The environment name (e.g., Test, Acceptance, Production)
+
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${Environment}-ECSCluster"
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-ECSCluster"
+
+Outputs:
+  ClusterArn:
+    Description: The ARN of the ECS Cluster
+    Value: !Ref ECSCluster
+  ClusterName:
+    Description: The Name of the ECS Cluster
+    Value: !Ref ECSCluster

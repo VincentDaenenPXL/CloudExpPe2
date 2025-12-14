@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECR Repository Stack - Creates repositories for Application and Web Layer Docker images.
+
+Resources:
+  ApplicationLayerECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: application-layer-repo
+      ImageScanningConfiguration:
+        ScanOnPush: true # Enabled for security scanning
+      Tags:
+        - Key: Name
+          Value: application-layer-repo
+
+  WebLayerECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: web-layer-repo
+      ImageScanningConfiguration:
+        ScanOnPush: true # Enabled for security scanning
+      Tags:
+        - Key: Name
+          Value: web-layer-repo
+
+
+  # S3 Bucket for CloudFormation artifact packaging
+  CfnPackageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "cf-package-bucket-${AWS::AccountId}-${AWS::Region}" # Unique bucket name
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Name
+          Value: CloudFormation-Package-Bucket
+
+Outputs:
+  ApplicationLayerECRRepositoryUri:
+    Description: URI of the Application Layer ECR Repository
+    Value: !GetAtt ApplicationLayerECRRepository.RepositoryUri
+  WebLayerECRRepositoryUri:
+    Description: URI of the Web Layer ECR Repository
+    Value: !GetAtt WebLayerECRRepository.RepositoryUri
+  CfnPackageBucketName:
+    Description: Name of the S3 bucket for CloudFormation packaging.
+    Value: !Ref CfnPackageBucket

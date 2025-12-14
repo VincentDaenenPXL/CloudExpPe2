@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Application Service Stack - Creates an internal ALB, ECS Task Definition,
+  and ECS Service for the Application Layer.
+
+Parameters:
+  Environment:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnetIds:
+    Type: CommaDelimitedList
+  EcsClusterName:
+    Type: String
+  ApplicationLayerECRRepositoryUri:
+    Type: String
+  ImageTag:
+    Type: String
+  DBEndpoint:
+    Type: String
+    Description: The endpoint of the RDS database, passed from the Database Stack.
+  DBSecretArn:
+    Type: String
+    Description: The ARN of the Secrets Manager secret for DB credentials.
+  ApplicationServiceSGId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: The ID of the Application Service Security Group.
+  InternalAlbSGId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: The ID of the Internal ALB Security Group.
+  LabRoleArn:
+    Type: String
+    Description: The ARN of the IAM role for the ECS tasks.
+
+Mappings:
+  ScalingConfig:
+    Test:
+      Min: 1
+      Max: 2
+      Desired: 1
+    Acceptance:
+      Min: 2
+      Max: 4
+      Desired: 2
+    Production:
+      Min: 2
+      Max: 6
+      Desired: 2
+
+Conditions:
+  IsAcceptanceOrProduction: !Or [!Equals [!Ref Environment, Acceptance], !Equals [!Ref Environment, Production]]
+
+Resources:
+  InternalALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internal
+      Subnets: !Ref PrivateSubnetIds
+      SecurityGroups: [!Ref InternalAlbSGId]
+      Type: application
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-InternalAppALB'
+
+  InternalTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Port: 4000
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      Matcher: { HttpCode: '200' }
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-InternalAppTG'
+
+  InternalListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref InternalALB
+      Port: 80 # The ALB listens on 80 and forwards to 4000
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref InternalTargetGroup
+
+
+  # ECS Task Definition and Log Group
+  ApplicationTaskLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${Environment}-Application'
+      RetentionInDays: 7
+
+  ApplicationTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${Environment}-ApplicationTask'
+      Cpu: '512'
+      Memory: '1024'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: ['FARGATE']
+      ExecutionRoleArn: !Ref LabRoleArn
+      TaskRoleArn: !Ref LabRoleArn
+      ContainerDefinitions:
+        - Name: application-layer
+          Image: !Sub '${ApplicationLayerECRRepositoryUri}:${ImageTag}'
+          PortMappings:
+            - ContainerPort: 4000
+              Protocol: tcp
+          Environment:
+            - Name: AWS_REGION
+              Value: !Ref 'AWS::Region'
+            - Name: DB_HOST
+              Value: !Ref DBEndpoint
+          Secrets:
+            - Name: DB_USERNAME
+              ValueFrom: !Sub "${DBSecretArn}:username::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "${DBSecretArn}:password::"
+            - Name: DB_NAME
+              ValueFrom: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${Environment}/TodoAppDB/dbname'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ApplicationTaskLogGroup
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: ecs
+
+  # ECS Service
+  ApplicationService:
+    Type: AWS::ECS::Service
+    DependsOn: InternalListener
+    Properties:
+      Cluster: !Ref EcsClusterName
+      ServiceName: !Sub '${Environment}-ApplicationService'
+      LaunchType: FARGATE
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: !FindInMap [ScalingConfig, !Ref Environment, Desired]
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref PrivateSubnetIds
+          SecurityGroups: [!Ref ApplicationServiceSGId]
+      TaskDefinition: !Ref ApplicationTaskDefinition
+      LoadBalancers:
+        - ContainerName: application-layer
+          ContainerPort: 4000
+          TargetGroupArn: !Ref InternalTargetGroup
+      HealthCheckGracePeriodSeconds: 900
+
+  # Auto Scaling for Acceptance and Production
+  ApplicationScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: IsAcceptanceOrProduction
+    Properties:
+      MaxCapacity: !FindInMap [ScalingConfig, !Ref Environment, Max]
+      MinCapacity: !FindInMap [ScalingConfig, !Ref Environment, Min]
+      ResourceId: !Join [ '', [ 'service/', !Ref EcsClusterName, '/', !GetAtt ApplicationService.Name ] ]
+      RoleARN: !Ref LabRoleArn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  ApplicationScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Condition: IsAcceptanceOrProduction
+    Properties:
+      PolicyName: !Sub '${Environment}-App-CPU-ScalingPolicy'
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ApplicationScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 70.0
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+
+Outputs:
+  InternalALBDnsName:
+    Description: The DNS name of the internal Application Load Balancer
+    Value: !GetAtt InternalALB.DNSName

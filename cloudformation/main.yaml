@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Main CloudFormation template for deploying the multi-tier ECS application.
+
+Parameters:
+  Environment:
+    Description: The environment to deploy to (e.g., Test, Acceptance, Production).
+    Type: String
+    AllowedValues:
+      - Test
+      - Acceptance
+      - Production
+    Default: Test
+
+  ImageTag:
+    Description: The tag for the Docker images to deploy (e.g., the git commit SHA).
+    Type: String
+
+  ApplicationLayerECRRepositoryUri:
+    Description: The URI of the pre-existing Application Layer ECR repository.
+    Type: String
+
+  WebLayerECRRepositoryUri:
+    Description: The URI of the pre-existing Web Layer ECR repository.
+    Type: String
+  LabRoleArn:
+    Description: The ARN of the IAM role for the ECS tasks.
+    Type: String
+    
+Resources:
+  DBNameSSMParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${Environment}/TodoAppDB/dbname'
+      Type: String
+      Value: 'TodoAppDB'
+      Description: !Sub 'Database name for the ${Environment} To-Do App Database'
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./network.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  EcsClusterStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./ecs-cluster.yaml
+      Parameters:
+        Environment: !Ref Environment
+
+  SecurityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./security.yaml
+      Parameters:
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+
+  DatabaseStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./database.yaml
+      Parameters:
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+        DBSecurityGroupId: !GetAtt SecurityStack.Outputs.DBSecurityGroupId
+
+  ApplicationServiceStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./application-service.yaml
+      Parameters:
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+        EcsClusterName: !GetAtt EcsClusterStack.Outputs.ClusterName
+        ApplicationLayerECRRepositoryUri: !Ref ApplicationLayerECRRepositoryUri
+        ImageTag: !Ref ImageTag
+        DBEndpoint: !GetAtt DatabaseStack.Outputs.DBEndpoint
+        DBSecretArn: !GetAtt DatabaseStack.Outputs.DBSecretArn
+        ApplicationServiceSGId: !GetAtt SecurityStack.Outputs.ApplicationServiceSGId
+        InternalAlbSGId: !GetAtt SecurityStack.Outputs.InternalAlbSGId
+        LabRoleArn: !Ref LabRoleArn
+
+  WebServiceStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - ApplicationServiceStack # Ensure backend is ready before frontend
+    Properties:
+      TemplateURL: ./web-service.yaml
+      Parameters:
+        Environment: !Ref Environment
+        VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PublicSubnetIds: !GetAtt NetworkStack.Outputs.PublicSubnetIds
+        PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+        EcsClusterName: !GetAtt EcsClusterStack.Outputs.ClusterName
+        WebLayerECRRepositoryUri: !Ref WebLayerECRRepositoryUri
+        ImageTag: !Ref ImageTag
+        BackendApiUrl: !GetAtt ApplicationServiceStack.Outputs.InternalALBDnsName
+        AlbSecurityGroupId: !GetAtt SecurityStack.Outputs.AlbSecurityGroupId
+        WebServiceSecurityGroupId: !GetAtt SecurityStack.Outputs.WebServiceSecurityGroupId
+        LabRoleArn: !Ref LabRoleArn
+
+
+Outputs:
+  WebAppURL:
+    Description: "URL for the deployed web application"
+    Value: !GetAtt WebServiceStack.Outputs.WebAlbDnsName
+  DBNameParameterName:
+    Description: "The name of the SSM parameter that stores the database name"
+    Value: !Ref DBNameSSMParameter

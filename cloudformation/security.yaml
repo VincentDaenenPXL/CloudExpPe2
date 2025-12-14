@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Security Stack - Creates all Security Groups and their ingress/egress rules
+  for the multi-tier application.
+
+Parameters:
+  Environment:
+    Type: String
+    Description: The environment name (e.g., Test, Acceptance, Production).
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC ID where resources will be deployed.
+
+Resources:
+  # === Security Group for the Public Web ALB ===
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Access to the ALB for the ${Environment} Web Layer'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-WebAlbSG'
+
+  # === Security Group for the Web Service (ECS Tasks) ===
+  WebServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Access to the ${Environment} Web Layer ECS Service'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !GetAtt AlbSecurityGroup.GroupId
+          IpProtocol: tcp
+          FromPort: 5000 # As defined in web-service.yaml
+          ToPort: 5000
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-WebServiceSG'
+
+  # === Security Group for the Internal Application ALB ===
+  InternalAlbSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Access to the internal ALB for ${Environment}'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !GetAtt WebServiceSecurityGroup.GroupId
+          IpProtocol: tcp
+          FromPort: 80 # Internal ALB listens on port 80
+          ToPort: 80
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-InternalAlbSG'
+
+  # === Security Group for the Application Service (ECS Tasks) ===
+  ApplicationServiceSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'Access to the Application Service for ${Environment}'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !GetAtt InternalAlbSG.GroupId
+          IpProtocol: tcp
+          FromPort: 4000 # As defined in application-service.yaml
+          ToPort: 4000
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-ApplicationServiceSG'
+
+  # === Security Group for the Database ===
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${Environment} Database Security Group'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !GetAtt ApplicationServiceSG.GroupId
+          IpProtocol: tcp
+          FromPort: 3306 # MySQL port
+          ToPort: 3306
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-DBSG'
+
+Outputs:
+  AlbSecurityGroupId:
+    Description: The ID of the Web ALB Security Group
+    Value: !GetAtt AlbSecurityGroup.GroupId
+  WebServiceSecurityGroupId:
+    Description: The ID of the Web Service Security Group
+    Value: !GetAtt WebServiceSecurityGroup.GroupId
+  InternalAlbSGId:
+    Description: The ID of the Internal ALB Security Group
+    Value: !GetAtt InternalAlbSG.GroupId
+  ApplicationServiceSGId:
+    Description: The ID of the Application Service Security Group
+    Value: !GetAtt ApplicationServiceSG.GroupId
+  DBSecurityGroupId:
+    Description: The ID of the Database Security Group
+    Value: !GetAtt DBSecurityGroup.GroupId

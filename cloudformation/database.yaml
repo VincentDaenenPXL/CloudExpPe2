@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Database Stack - Creates an RDS MySQL database, a subnet group, a security
+  group, and a secret in Secrets Manager to hold the master credentials.
+
+Parameters:
+  Environment:
+    Type: String
+    Description: The environment name (e.g., Test, Acceptance, Production).
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC ID to deploy the database into.
+
+  PrivateSubnetIds:
+    Type: CommaDelimitedList
+    Description: The private subnets for the database.
+
+  DBSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: The ID of the Security Group for the database.
+
+
+Resources:
+  # DB Subnet Group
+  # The RDS instance will be placed in the subnets defined here.
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: 'Subnet group for RDS'
+      SubnetIds: !Ref PrivateSubnetIds
+
+  # Secret for the database master user credentials
+  # This secret auto-generates a secure password.
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: !Sub "Credentials for the ${Environment} To-Do App Database"
+      Name: !Sub "${Environment}/TodoAppDB/credentials"
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: '"@/\\'
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-DB-Credentials'
+
+
+
+  # The RDS Database Instance
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub '${Environment}-todo-app-db'
+      Engine: mysql
+      EngineVersion: '8.0'
+      DBInstanceClass: 'db.t3.micro'
+      AllocatedStorage: '20'
+      DBName: 'TodoAppDB'
+      # Use the credentials from the auto-generated secret
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:username}}']]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:password}}']]
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroupId
+      PubliclyAccessible: false
+      DeletionProtection: false # Set to true for production
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-DBInstance'
+
+
+Outputs:
+  DBEndpoint:
+    Description: The connection endpoint of the RDS instance.
+    Value: !GetAtt DBInstance.Endpoint.Address
+  DBSecretArn:
+    Description: The ARN of the secret holding the database credentials.
+    Value: !Ref DBSecret

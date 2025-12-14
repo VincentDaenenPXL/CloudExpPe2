@@ -1,0 +1,306 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Network Stack - Creates VPC, subnets, and routing for the application.
+
+Parameters:
+  Environment:
+    Type: String
+    Description: The environment name (e.g., Test, Acceptance, Production)
+
+Conditions:
+  IsTest: !Equals [!Ref Environment, Test]
+  IsAcceptance: !Equals [!Ref Environment, Acceptance]
+  IsProduction: !Equals [!Ref Environment, Production]
+  IsAcceptanceOrProduction: !Or [!Condition IsTest, !Condition IsAcceptance, !Condition IsProduction]
+  IsProductionOnly: !Condition IsProduction
+
+Mappings:
+  SubnetConfig:
+    Test:
+      VpcCidr: '10.0.0.0/16'
+      PublicSubnet1Cidr: '10.0.1.0/24'
+      PublicSubnet2Cidr: '10.0.2.0/24'
+      PrivateSubnet1Cidr: '10.0.3.0/24'
+      PrivateSubnet2Cidr: '10.0.4.0/24'
+    Acceptance:
+      VpcCidr: '10.10.0.0/16'
+      PublicSubnet1Cidr: '10.10.0.0/24'
+      PublicSubnet2Cidr: '10.10.1.0/24'
+      PrivateSubnet1Cidr: '10.10.2.0/24'
+      PrivateSubnet2Cidr: '10.10.3.0/24'
+    Production:
+      VpcCidr: '10.20.0.0/16'
+      PublicSubnet1Cidr: '10.20.0.0/24'
+      PublicSubnet2Cidr: '10.20.1.0/24'
+      PublicSubnet3Cidr: '10.20.2.0/24'
+      PrivateSubnet1Cidr: '10.20.3.0/24'
+      PrivateSubnet2Cidr: '10.20.4.0/24'
+      PrivateSubnet3Cidr: '10.20.5.0/24'
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [SubnetConfig, !Ref Environment, VpcCidr]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-VPC"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-IGW"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnet 1
+  # Public Subnet 1
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, !Ref Environment, PublicSubnet1Cidr]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PublicSubnet1"
+
+  # Public Subnet 2 (Conditional for Acceptance and Production)
+  PublicSubnet2:
+    Condition: IsAcceptanceOrProduction
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, !Ref Environment, PublicSubnet2Cidr]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PublicSubnet2"
+
+  # Public Subnet 3 (Conditional for Production only)
+  PublicSubnet3:
+    Condition: IsProductionOnly
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, !Ref Environment, PublicSubnet3Cidr]
+      AvailabilityZone: !Select [2, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PublicSubnet3"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PublicRT"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+  
+  PublicSubnet2RouteTableAssociation:
+    Condition: IsAcceptanceOrProduction
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+  
+  PublicSubnet3RouteTableAssociation:
+    Condition: IsProductionOnly
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicRouteTable
+
+  # Private Subnet 1
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, !Ref Environment, PrivateSubnet1Cidr]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PrivateSubnet1"
+
+  # Private Subnet 2 (Conditional for Acceptance and Production)
+  PrivateSubnet2:
+    Condition: IsAcceptanceOrProduction
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, !Ref Environment, PrivateSubnet2Cidr]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PrivateSubnet2"
+
+  # Private Subnet 3 (Conditional for Production only)
+  PrivateSubnet3:
+    Condition: IsProductionOnly
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [SubnetConfig, !Ref Environment, PrivateSubnet3Cidr]
+      AvailabilityZone: !Select [2, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PrivateSubnet3"
+
+  # NAT Gateway and EIP for PrivateSubnet1 (Conditional for Acceptance and Production)
+  EIP1:
+    Condition: IsAcceptanceOrProduction
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-NAT-EIP1"
+
+  NATGateway1:
+    Condition: IsAcceptanceOrProduction
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIP1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-NATGateway1"
+
+  # NAT Gateway and EIP for PrivateSubnet2 (Conditional for Production only)
+  EIP2:
+    Condition: IsProductionOnly
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-NAT-EIP2"
+
+  NATGateway2:
+    Condition: IsProductionOnly
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIP2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-NATGateway2"
+
+  PrivateRouteTable: # This is PrivateRouteTable1
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PrivateRT1"
+
+  PrivateRoute1Route:
+    Type: AWS::EC2::Route
+    Condition: IsAcceptanceOrProduction
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Private Route Table 2 (Conditional for Acceptance and Production)
+  PrivateRouteTable2:
+    Condition: IsAcceptanceOrProduction
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PrivateRT2"
+
+  PrivateRoute2Route:
+    Type: AWS::EC2::Route
+    Condition: IsAcceptanceOrProduction
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway1 # Using NATGateway1 for both PrivateRT1 and PrivateRT2 for Acceptance
+
+  PrivateSubnet2RouteTableAssociation:
+    Condition: IsAcceptanceOrProduction
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
+  # Private Route Table 3 (Conditional for Production only)
+  PrivateRouteTable3:
+    Condition: IsProductionOnly
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-PrivateRT3"
+
+  PrivateRoute3Route:
+    Type: AWS::EC2::Route
+    Condition: IsProductionOnly
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway2 # Using NATGateway2 for PrivateRT3 for Production
+
+  PrivateSubnet3RouteTableAssociation:
+    Condition: IsProductionOnly
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet3
+      RouteTableId: !Ref PrivateRouteTable3
+
+
+Outputs:
+  VpcId:
+    Description: The ID of the VPC
+    Value: !Ref VPC
+  VpcCidr:
+    Description: The CIDR block of the VPC
+    Value: !GetAtt VPC.CidrBlock
+  PublicSubnetIds:
+    Description: Comma-delimited list of public subnet IDs
+    Value: !Join
+      - ','
+      - - !Ref PublicSubnet1
+        - !If [IsAcceptanceOrProduction, !Ref PublicSubnet2, !Ref "AWS::NoValue"]
+        - !If [IsProductionOnly, !Ref PublicSubnet3, !Ref "AWS::NoValue"]
+  PrivateSubnetIds:
+    Description: Comma-delimited list of private subnet IDs
+    Value: !Join
+      - ','
+      - - !Ref PrivateSubnet1
+        - !If [IsAcceptanceOrProduction, !Ref PrivateSubnet2, !Ref "AWS::NoValue"]
+        - !If [IsProductionOnly, !Ref PrivateSubnet3, !Ref "AWS::NoValue"]
