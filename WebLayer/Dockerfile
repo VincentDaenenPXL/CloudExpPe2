@@ -2,7 +2,9 @@
 FROM python:3.9-slim-buster
 
 # Step 2: Install Nginx
-RUN apt-get update && apt-get install -y nginx curl
+RUN echo "deb http://archive.debian.org/debian/ buster main" > /etc/apt/sources.list && \
+    echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list && \
+    apt-get update && apt-get install -y nginx curl
 
 # Step 3: Set the working directory in the container
 WORKDIR /app
