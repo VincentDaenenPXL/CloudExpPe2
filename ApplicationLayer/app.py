@@ -44,13 +44,10 @@ def create():
     try:
         if request.method == "POST":
             todo = TodoTable(task=request.form.get("task"))
-            db.session.add(todo)
-            db.session.commit()
-
-            return redirect("/", 302)
-    except:
-        return redirect("/", 404)
-
+                        return jsonify({"success": True}), 200
+                except Exception as e:
+                    db.session.rollback() # Rollback on error
+                    return jsonify({"success": False, "error": str(e)}), 400
 @app.route("/update", methods =['POST'])
 def update():
     @after_this_request
@@ -63,9 +60,10 @@ def update():
             todo.task = request.form.get("task")
 
             db.session.commit()
-            return redirect("/", 302)
-    except:
-        return redirect("/", 404)
+            return jsonify({"success": True}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @app.route("/complete/<task_id>", methods=["POST"])
 def complete(task_id):
@@ -78,9 +76,10 @@ def complete(task_id):
         db.session.delete(todo)
         db.session.commit()
         
-        return redirect("/", 302)
-    except:
-        return redirect("/", 404)
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 400
     
 
 @app.route('/health')
