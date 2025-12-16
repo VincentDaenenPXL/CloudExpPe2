@@ -3,23 +3,6 @@
 
 {% block body %}
 
-<div class="col-md-4 mb-4">
-    <div class="card bg-dark text-light border-light">
-        <div class="card-header text-center">
-            <h3>Add New Task</h3>
-        </div>
-        <div class="card-body">
-            <form id="create-task-form" action="/api/create" method="POST">
-                <div class="form-group">
-                    <label for="task">Task:</label>
-                    <input type="text" class="form-control" id="task" name="task" required>
-                </div>
-                <button type="submit" class="btn btn-primary btn-block mt-3">Add Task</button>
-            </form>
-        </div>
-    </div>
-</div>
-
 <table class="table table-dark text-light table-hover border-light bg-secondary bg-gradient">
     <thead>
         <tr>
@@ -27,94 +10,48 @@
             <th class="text-center" colspan="2">Actions</th>
         </tr>
     </thead>
-    <tbody id="todo-table-body">
-        <!-- Rows will be inserted here by JavaScript -->
-    </tbody>
-</table>
+    <tbody>
+        {% for todo_id in todos %}
+            <tr>
+                <td class="w-50 align-middle text-center">{{todos[todo_id]}}</td>
+                <td class="w-25 align-middle text-end">
+                    <form action="/api/complete/{{todo_id}}" method="POST">
+                        <div class="form-group">
+                        <button class="btn btn-success" type="submit"><i class="bi bi-check"></i></button>
+                        </div>
+                    </form>
+                </td>
+                <td class="w-25 align-middle text-start">
+                    <button data-bs-toggle="modal" data-bs-target="#modaledit{{todo_id}}" class="btn btn-warning"><i class="bi bi-pencil"></i></button>
+                </td>
+            </tr>
+            <div id="modaledit{{todo_id}}" class="modal fade" role="dialog">
+                <div class="modal-dialog">
+                   <div class="modal-content">
+                        <div class="modal-header">
+                            <h4 class="modal-title">Update Task</h4>
+                        </div>
+                        <div class="modal-body">
 
-<!-- Modals will be appended to a dedicated container -->
-<div id="modal-container"></div>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const todoTableBody = document.getElementById('todo-table-body');
-    const modalContainer = document.getElementById('modal-container');
-
-    fetch('/api/')
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok: ' + response.statusText);
-            }
-            return response.json();
-        })
-        .then(todos => {
-            // Clear existing rows and modals if any
-            todoTableBody.innerHTML = '';
-            modalContainer.innerHTML = '';
-
-            if (Object.keys(todos).length === 0) {
-                todoTableBody.innerHTML = '<tr><td colspan="3" class="text-center">No tasks found. Add one below!</td></tr>';
-                return;
-            }
-
-            for (const todo_id in todos) {
-                if (todos.hasOwnProperty(todo_id)) {
-                    const task = todos[todo_id];
-
-                    // Create table row
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td class="w-50 align-middle text-center">${task}</td>
-                        <td class="w-25 align-middle text-end">
-                            <form class="complete-task-form" action="/api/complete/${todo_id}" method="POST">
+                            <form action="/api/update" method="POST">
                                 <div class="form-group">
-                                    <button class="btn btn-success" type="submit"><i class="bi bi-check"></i></button>
+                                    <label>Task:</label>
+                                    <input type="hidden"  name="task_id" value="{{todo_id}}">
+                                    <input type="text" class="form-control" name="task" value="{{todos[todo_id]}}" >
+                                </div>
+
+                                <div class="form-group">
+                                <button class="btn btn-primary mt-4" type="submit">Update Book</button>
                                 </div>
                             </form>
-                        </td>
-                        <td class="w-25 align-middle text-start">
-                            <button data-bs-toggle="modal" data-bs-target="#modaledit${todo_id}" class="btn btn-warning"><i class="bi bi-pencil"></i></button>
-                        </td>
-                    `;
-                    todoTableBody.appendChild(row);
-
-                    // Create modal for editing. It's appended to a separate container to avoid invalid HTML (div inside a tr).
-                    const modal = document.createElement('div');
-                    modal.innerHTML = `
-                    <div id="modaledit${todo_id}" class="modal fade" role="dialog">
-                        <div class="modal-dialog">
-                           <div class="modal-content">
-                                <div class="modal-header">
-                                    <h4 class="modal-title">Update Task</h4>
-                                </div>
-                                <div class="modal-body">
-                                    <form class="update-task-form" action="/api/update" method="POST">
-                                        <div class="form-group">
-                                            <label>Task:</label>
-                                            <input type="hidden" name="task_id" value="${todo_id}">
-                                            <input type="text" class="form-control" name="task" value="${task}" >
-                                        </div>
-                                        <div class="form-group">
-                                            <button class="btn btn-primary mt-4" type="submit">Update Task</button>
-                                        </div>
-                                    </form>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                                </div>
-                            </div>
                         </div>
-                     </div>
-                    `;
-                    modalContainer.appendChild(modal);
-                }
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching todos:', error);
-            todoTableBody.innerHTML = '<tr><td colspan="3" class="text-center">Could not load tasks. Please check the connection to the backend.</td></tr>';
-        });
-});
-</script>
-
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+             </div>
+        {% endfor %}
+    </tbody>
+</table>
 {% endblock %}

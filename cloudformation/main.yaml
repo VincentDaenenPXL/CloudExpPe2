@@ -25,6 +25,24 @@ Parameters:
   LabRoleArn:
     Description: The ARN of the IAM role for the ECS tasks.
     Type: String
+  
+  # Parameters for Bastion Host (Production only)
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the bastion host.
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair.
+  
+  BastionAllowedCIDR:
+    Description: The IP address range that can be used to SSH to the EC2 instances.
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/([0-9]|[1-2][0-9]|3[0-2]))$"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, Production]
     
 Resources:
   DBNameSSMParameter:
@@ -55,6 +73,9 @@ Resources:
       Parameters:
         Environment: !Ref Environment
         VpcId: !GetAtt NetworkStack.Outputs.VpcId
+        PublicSubnetIds: !GetAtt NetworkStack.Outputs.PublicSubnetIds # Pass Public Subnets
+        KeyName: !Ref KeyName # Pass KeyName
+        BastionAllowedCIDR: !Ref BastionAllowedCIDR # Pass Allowed CIDR
 
   DatabaseStack:
     Type: AWS::CloudFormation::Stack
@@ -106,7 +127,13 @@ Resources:
 Outputs:
   WebAppURL:
     Description: "URL for the deployed web application"
-    Value: !GetAtt WebServiceStack.Outputs.WebAlbDnsName
+    Value: !GetAtt WebServiceStack.Outputs.WebAppURL
   DBNameParameterName:
     Description: "The name of the SSM parameter that stores the database name"
     Value: !Ref DBNameSSMParameter
+  BastionPublicIP:
+    Description: "Public IP address of the Bastion Host (for Production environment)"
+    Value: !If
+      - IsProduction
+      - !GetAtt SecurityStack.Outputs.BastionPublicIP
+      - '' # Return an empty string if not Production

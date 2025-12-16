@@ -47,6 +47,7 @@ Mappings:
       Max: 6
       Desired: 2
 
+
 Conditions:
   IsAcceptanceOrProduction: !Or [!Equals [!Ref Environment, Acceptance], !Equals [!Ref Environment, Production]]
 
@@ -72,6 +73,9 @@ Resources:
       HealthCheckPath: /health
       HealthCheckProtocol: HTTP
       Matcher: { HttpCode: '200' }
+      TargetGroupAttributes: # Added for connection draining
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
       Tags:
         - Key: Name
           Value: !Sub '${Environment}-InternalAppTG'
@@ -80,7 +84,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       LoadBalancerArn: !Ref InternalALB
-      Port: 80 # The ALB listens on 80 and forwards to 4000
+      Port: 80
       Protocol: HTTP
       DefaultActions:
         - Type: forward
@@ -113,7 +117,7 @@ Resources:
           Environment:
             - Name: AWS_REGION
               Value: !Ref 'AWS::Region'
-            - Name: DB_HOST
+            - Name: DB_ENDPOINT
               Value: !Ref DBEndpoint
           Secrets:
             - Name: DB_USERNAME
@@ -151,7 +155,7 @@ Resources:
         - ContainerName: application-layer
           ContainerPort: 4000
           TargetGroupArn: !Ref InternalTargetGroup
-      HealthCheckGracePeriodSeconds: 900
+      HealthCheckGracePeriodSeconds: 120 # Reduced from 900
 
   # Auto Scaling for Acceptance and Production
   ApplicationScalableTarget:
@@ -161,7 +165,7 @@ Resources:
       MaxCapacity: !FindInMap [ScalingConfig, !Ref Environment, Max]
       MinCapacity: !FindInMap [ScalingConfig, !Ref Environment, Min]
       ResourceId: !Join [ '', [ 'service/', !Ref EcsClusterName, '/', !GetAtt ApplicationService.Name ] ]
-      RoleARN: !Ref LabRoleArn
+      RoleARN: !Ref LabRoleArn # Reverted to use LabRoleArn as requested
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
@@ -178,6 +182,7 @@ Resources:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
         ScaleInCooldown: 60
         ScaleOutCooldown: 60
+
 
 Outputs:
   InternalALBDnsName:

@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ECR Repository Stack - Creates repositories for Application and Web Layer Docker images.
+Description: ECR Repository Stack - Creates universal repositories for Application and Web Layer Docker images.
 
 Resources:
   ApplicationLayerECRRepository:
@@ -7,7 +7,7 @@ Resources:
     Properties:
       RepositoryName: application-layer-repo
       ImageScanningConfiguration:
-        ScanOnPush: true # Enabled for security scanning
+        ScanOnPush: true
       Tags:
         - Key: Name
           Value: application-layer-repo
@@ -17,17 +17,15 @@ Resources:
     Properties:
       RepositoryName: web-layer-repo
       ImageScanningConfiguration:
-        ScanOnPush: true # Enabled for security scanning
+        ScanOnPush: true
       Tags:
         - Key: Name
           Value: web-layer-repo
 
-
-  # S3 Bucket for CloudFormation artifact packaging
   CfnPackageBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "cf-package-bucket-${AWS::AccountId}-${AWS::Region}" # Unique bucket name
+      BucketName: !Sub "cf-package-bucket-todo-app-${AWS::AccountId}-${AWS::Region}"
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
@@ -39,7 +37,7 @@ Resources:
         RestrictPublicBuckets: true
       Tags:
         - Key: Name
-          Value: CloudFormation-Package-Bucket
+          Value: 'cloudformation-package-bucket-todo-app'
 
 Outputs:
   ApplicationLayerECRRepositoryUri:

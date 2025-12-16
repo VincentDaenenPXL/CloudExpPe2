@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Network Stack - Creates VPC, subnets, and routing for the application.
+Description: 'Network Stack - Creates VPC, subnets, and routing for the application.'
 
 Parameters:
   Environment:
@@ -10,7 +10,7 @@ Conditions:
   IsTest: !Equals [!Ref Environment, Test]
   IsAcceptance: !Equals [!Ref Environment, Acceptance]
   IsProduction: !Equals [!Ref Environment, Production]
-  IsAcceptanceOrProduction: !Or [!Condition IsTest, !Condition IsAcceptance, !Condition IsProduction]
+  IsAcceptanceOrProduction: !Or [!Condition IsAcceptance, !Condition IsProduction] # FIXED
   IsProductionOnly: !Condition IsProduction
 
 Mappings:
@@ -18,9 +18,7 @@ Mappings:
     Test:
       VpcCidr: '10.0.0.0/16'
       PublicSubnet1Cidr: '10.0.1.0/24'
-      PublicSubnet2Cidr: '10.0.2.0/24'
       PrivateSubnet1Cidr: '10.0.3.0/24'
-      PrivateSubnet2Cidr: '10.0.4.0/24'
     Acceptance:
       VpcCidr: '10.10.0.0/16'
       PublicSubnet1Cidr: '10.10.0.0/24'
@@ -60,8 +58,7 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  # Public Subnet 1
-  # Public Subnet 1
+  # === PUBLIC SUBNETS ===
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -73,7 +70,6 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-PublicSubnet1"
 
-  # Public Subnet 2 (Conditional for Acceptance and Production)
   PublicSubnet2:
     Condition: IsAcceptanceOrProduction
     Type: AWS::EC2::Subnet
@@ -86,7 +82,6 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-PublicSubnet2"
 
-  # Public Subnet 3 (Conditional for Production only)
   PublicSubnet3:
     Condition: IsProductionOnly
     Type: AWS::EC2::Subnet
@@ -135,7 +130,7 @@ Resources:
       SubnetId: !Ref PublicSubnet3
       RouteTableId: !Ref PublicRouteTable
 
-  # Private Subnet 1
+  # === PRIVATE SUBNETS ===
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -146,7 +141,6 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-PrivateSubnet1"
 
-  # Private Subnet 2 (Conditional for Acceptance and Production)
   PrivateSubnet2:
     Condition: IsAcceptanceOrProduction
     Type: AWS::EC2::Subnet
@@ -158,7 +152,6 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-PrivateSubnet2"
 
-  # Private Subnet 3 (Conditional for Production only)
   PrivateSubnet3:
     Condition: IsProductionOnly
     Type: AWS::EC2::Subnet
@@ -170,9 +163,9 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-PrivateSubnet3"
 
-  # NAT Gateway and EIP for PrivateSubnet1 (Conditional for Acceptance and Production)
+  # === NAT GATEWAYS (FOR INTERNET ACCESS FROM PRIVATE SUBNETS) ===
+  # NAT GW 1 (All environments, AZ 1)
   EIP1:
-    Condition: IsAcceptanceOrProduction
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
@@ -181,7 +174,6 @@ Resources:
           Value: !Sub "${Environment}-NAT-EIP1"
 
   NATGateway1:
-    Condition: IsAcceptanceOrProduction
     Type: AWS::EC2::NatGateway
     Properties:
       AllocationId: !GetAtt EIP1.AllocationId
@@ -190,9 +182,9 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-NATGateway1"
 
-  # NAT Gateway and EIP for PrivateSubnet2 (Conditional for Production only)
+  # NAT GW 2 (Acceptance & Production, AZ 2)
   EIP2:
-    Condition: IsProductionOnly
+    Condition: IsAcceptanceOrProduction
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
@@ -201,7 +193,7 @@ Resources:
           Value: !Sub "${Environment}-NAT-EIP2"
 
   NATGateway2:
-    Condition: IsProductionOnly
+    Condition: IsAcceptanceOrProduction
     Type: AWS::EC2::NatGateway
     Properties:
       AllocationId: !GetAtt EIP2.AllocationId
@@ -210,7 +202,29 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-NATGateway2"
 
-  PrivateRouteTable: # This is PrivateRouteTable1
+  # NAT GW 3 (Production only, AZ 3)
+  EIP3:
+    Condition: IsProductionOnly
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-NAT-EIP3"
+
+  NATGateway3:
+    Condition: IsProductionOnly
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIP3.AllocationId
+      SubnetId: !Ref PublicSubnet3
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-NATGateway3"
+
+  # === PRIVATE ROUTE TABLES ===
+  # RT for AZ 1
+  PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
@@ -218,11 +232,10 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-PrivateRT1"
 
-  PrivateRoute1Route:
+  PrivateRoute1:
     Type: AWS::EC2::Route
-    Condition: IsAcceptanceOrProduction
     Properties:
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTable1
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref NATGateway1
 
@@ -230,9 +243,9 @@ Resources:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       SubnetId: !Ref PrivateSubnet1
-      RouteTableId: !Ref PrivateRouteTable
+      RouteTableId: !Ref PrivateRouteTable1
 
-  # Private Route Table 2 (Conditional for Acceptance and Production)
+  # RT for AZ 2
   PrivateRouteTable2:
     Condition: IsAcceptanceOrProduction
     Type: AWS::EC2::RouteTable
@@ -242,13 +255,13 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-PrivateRT2"
 
-  PrivateRoute2Route:
-    Type: AWS::EC2::Route
+  PrivateRoute2:
     Condition: IsAcceptanceOrProduction
+    Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PrivateRouteTable2
       DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NATGateway1 # Using NATGateway1 for both PrivateRT1 and PrivateRT2 for Acceptance
+      NatGatewayId: !Ref NATGateway2 # FIXED: Route through GW in same AZ
 
   PrivateSubnet2RouteTableAssociation:
     Condition: IsAcceptanceOrProduction
@@ -257,7 +270,7 @@ Resources:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable2
 
-  # Private Route Table 3 (Conditional for Production only)
+  # RT for AZ 3
   PrivateRouteTable3:
     Condition: IsProductionOnly
     Type: AWS::EC2::RouteTable
@@ -267,13 +280,13 @@ Resources:
         - Key: Name
           Value: !Sub "${Environment}-PrivateRT3"
 
-  PrivateRoute3Route:
-    Type: AWS::EC2::Route
+  PrivateRoute3:
     Condition: IsProductionOnly
+    Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PrivateRouteTable3
       DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NATGateway2 # Using NATGateway2 for PrivateRT3 for Production
+      NatGatewayId: !Ref NATGateway3 # FIXED: Route through GW in same AZ
 
   PrivateSubnet3RouteTableAssociation:
     Condition: IsProductionOnly
@@ -303,4 +316,4 @@ Outputs:
       - ','
       - - !Ref PrivateSubnet1
         - !If [IsAcceptanceOrProduction, !Ref PrivateSubnet2, !Ref "AWS::NoValue"]
-        - !If [IsProductionOnly, !Ref PrivateSubnet3, !Ref "AWS::NoValue"]
+        - !If [IsProductionOnly, !Ref PublicSubnet3, !Ref "AWS::NoValue"]

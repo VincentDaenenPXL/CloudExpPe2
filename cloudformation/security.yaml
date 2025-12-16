@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
-  Security Stack - Creates all Security Groups and their ingress/egress rules
+  Security Stack - Creates all Security Groups, a Bastion Host, and their rules
   for the multi-tier application.
 
 Parameters:
@@ -10,8 +10,65 @@ Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: The VPC ID where resources will be deployed.
+  PublicSubnetIds:
+    Type: CommaDelimitedList
+    Description: The public subnets for the Bastion Host.
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair for the bastion host.
+  BastionAllowedCIDR:
+    Type: String
+    Description: The IP address range that can be used to SSH to the bastion host.
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, Production]
+
+Mappings:
+  # Latest Amazon Linux 2 AMI
+  RegionMap:
+    us-east-1:
+      AMI: ami-0c55b159cbfafe1f0
+    us-east-2:
+      AMI: ami-0b59bfac6be064b78
+    us-west-1:
+      AMI: ami-0d1cd67c24276136e
+    us-west-2:
+      AMI: ami-082b5a644766e0e6f
+    eu-west-1:
+      AMI: ami-047bb4163c506cd98
+    eu-central-1:
+      AMI: ami-04c9d3e4a31e97650
 
 Resources:
+  # === Bastion Host (Production Only) ===
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: IsProduction
+    Properties:
+      GroupDescription: !Sub 'Enable SSH access to the bastion host for ${Environment}'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref BastionAllowedCIDR
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-BastionSG'
+
+  BastionHost:
+    Type: AWS::EC2::Instance
+    Condition: IsProduction
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', AMI]
+      KeyName: !Ref KeyName
+      SubnetId: !Select [ 0, !Ref PublicSubnetIds ] # Place in the first public subnet
+      SecurityGroupIds: [!Ref BastionSecurityGroup]
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-BastionHost'
+
   # === Security Group for the Public Web ALB ===
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -36,8 +93,8 @@ Resources:
       SecurityGroupIngress:
         - SourceSecurityGroupId: !GetAtt AlbSecurityGroup.GroupId
           IpProtocol: tcp
-          FromPort: 5000 # As defined in web-service.yaml
-          ToPort: 5000
+          FromPort: 8000 
+          ToPort: 8000
       Tags:
         - Key: Name
           Value: !Sub '${Environment}-WebServiceSG'
@@ -51,7 +108,7 @@ Resources:
       SecurityGroupIngress:
         - SourceSecurityGroupId: !GetAtt WebServiceSecurityGroup.GroupId
           IpProtocol: tcp
-          FromPort: 80 # Internal ALB listens on port 80
+          FromPort: 80
           ToPort: 80
       Tags:
         - Key: Name
@@ -63,14 +120,29 @@ Resources:
     Properties:
       GroupDescription: !Sub 'Access to the Application Service for ${Environment}'
       VpcId: !Ref VpcId
-      SecurityGroupIngress:
-        - SourceSecurityGroupId: !GetAtt InternalAlbSG.GroupId
-          IpProtocol: tcp
-          FromPort: 4000 # As defined in application-service.yaml
-          ToPort: 4000
+      # Ingress is defined separately below for conditional logic
       Tags:
         - Key: Name
           Value: !Sub '${Environment}-ApplicationServiceSG'
+
+  AppServiceIngressFromALB:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ApplicationServiceSG
+      SourceSecurityGroupId: !GetAtt InternalAlbSG.GroupId
+      IpProtocol: tcp
+      FromPort: 4000
+      ToPort: 4000
+  
+  AppServiceIngressFromBastion:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: IsProduction
+    Properties:
+      GroupId: !Ref ApplicationServiceSG
+      SourceSecurityGroupId: !Ref BastionSecurityGroup
+      IpProtocol: tcp
+      FromPort: 4000
+      ToPort: 4000
 
   # === Security Group for the Database ===
   DBSecurityGroup:
@@ -78,14 +150,29 @@ Resources:
     Properties:
       GroupDescription: !Sub '${Environment} Database Security Group'
       VpcId: !Ref VpcId
-      SecurityGroupIngress:
-        - SourceSecurityGroupId: !GetAtt ApplicationServiceSG.GroupId
-          IpProtocol: tcp
-          FromPort: 3306 # MySQL port
-          ToPort: 3306
+      # Ingress is defined separately below for conditional logic
       Tags:
         - Key: Name
           Value: !Sub '${Environment}-DBSG'
+
+  DBIngressFromApp:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DBSecurityGroup
+      SourceSecurityGroupId: !GetAtt ApplicationServiceSG.GroupId
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+
+  DBIngressFromBastion:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: IsProduction
+    Properties:
+      GroupId: !Ref DBSecurityGroup
+      SourceSecurityGroupId: !Ref BastionSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
 
 Outputs:
   AlbSecurityGroupId:
@@ -103,3 +190,7 @@ Outputs:
   DBSecurityGroupId:
     Description: The ID of the Database Security Group
     Value: !GetAtt DBSecurityGroup.GroupId
+  BastionPublicIP:
+    Description: Public IP of the Bastion Host
+    Condition: IsProduction
+    Value: !GetAtt BastionHost.PublicIp

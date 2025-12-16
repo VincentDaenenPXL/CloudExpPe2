@@ -7,6 +7,7 @@ Parameters:
   Environment:
     Type: String
     Description: The environment name (e.g., Test, Acceptance, Production).
+    AllowedValues: [Test, Acceptance, Production]
 
   VpcId:
     Type: AWS::EC2::VPC::Id
@@ -20,10 +21,21 @@ Parameters:
     Type: AWS::EC2::SecurityGroup::Id
     Description: The ID of the Security Group for the database.
 
+Conditions:
+  IsProduction: !Equals [!Ref Environment, Production]
+  IsAcceptanceOrProduction: !Or [!Equals [!Ref Environment, Acceptance], !Condition IsProduction]
+
+Mappings:
+  DatabaseConfig:
+    Test:
+      InstanceClass: db.t3.micro
+    Acceptance:
+      InstanceClass: db.t3.small
+    Production:
+      InstanceClass: db.t3.medium # Upscale for Production
 
 Resources:
   # DB Subnet Group
-  # The RDS instance will be placed in the subnets defined here.
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -31,7 +43,6 @@ Resources:
       SubnetIds: !Ref PrivateSubnetIds
 
   # Secret for the database master user credentials
-  # This secret auto-generates a secure password.
   DBSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -41,12 +52,10 @@ Resources:
         SecretStringTemplate: '{"username": "admin"}'
         GenerateStringKey: "password"
         PasswordLength: 16
-        ExcludeCharacters: '"@/\\'
+        ExcludeCharacters: '"@/\'
       Tags:
         - Key: Name
           Value: !Sub '${Environment}-DB-Credentials'
-
-
 
   # The RDS Database Instance
   DBInstance:
@@ -55,21 +64,22 @@ Resources:
       DBInstanceIdentifier: !Sub '${Environment}-todo-app-db'
       Engine: mysql
       EngineVersion: '8.0'
-      DBInstanceClass: 'db.t3.micro'
+      DBInstanceClass: !FindInMap [DatabaseConfig, !Ref Environment, InstanceClass]
       AllocatedStorage: '20'
       DBName: 'TodoAppDB'
-      # Use the credentials from the auto-generated secret
       MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:username}}']]
       MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref DBSecret, ':SecretString:password}}']]
       DBSubnetGroupName: !Ref DBSubnetGroup
       VPCSecurityGroups:
         - !Ref DBSecurityGroupId
       PubliclyAccessible: false
-      DeletionProtection: false # Set to true for production
+      # Environment-specific settings
+      MultiAZ: !If [IsAcceptanceOrProduction, true, false] # HA for Acceptance and Production
+      StorageEncrypted: !If [IsProduction, true, false] # Encryption for Production
+      DeletionProtection: !If [IsProduction, true, false] # Protection for Production
       Tags:
         - Key: Name
           Value: !Sub '${Environment}-DBInstance'
-
 
 Outputs:
   DBEndpoint:
