@@ -15,7 +15,13 @@ def index():
     todos={}
 
     try:
-        url = os.environ.get("INTERNAL_ALB_DNS_NAME", "http://localhost/api/")
+        backend_dns = os.environ.get("INTERNAL_ALB_DNS_NAME")
+        if backend_dns:
+            url = f"http://{backend_dns}"
+        else:
+            # Default for local development, pointing to ApplicationLayer's port
+            url = "http://localhost:4000"
+
         response = requests.get(url, timeout=60)
         todos = json.loads(response.content)
     except Exception as ex:
